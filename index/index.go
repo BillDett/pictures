@@ -1,4 +1,4 @@
-package main
+package index
 
 // Create an index file from a root directory of photos
 // Process all sub-directories
@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/cozy/goexif2/exif"
 	"github.com/nfnt/resize"
@@ -80,16 +81,16 @@ func generateThumbnail(f *os.File, path string, ext string) ([]byte, error) {
 	return data, err
 }
 
-func main() {
+// Photoindex generates a photo index for the root directory given
+func Photoindex(root string) error {
 	thumbsDirName := "thumbs"
 	thumbSuffix := "_thumb"
-	if len(os.Args) != 2 {
-		fmt.Println("usage: photoindex root\nGenerates a photo index from root directory to stdout")
-		os.Exit(1)
+	if root == "" {
+		return errors.New("empty root directory given to Photoindex()")
 	}
 	// TODO: We should stat() root to make sure it exists!
 	dirs = make(map[string]bool)
-	err := filepath.Walk(os.Args[1], func(path string, info os.FileInfo, walkerr error) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, walkerr error) error {
 		if walkerr == nil {
 			base := filepath.Base(path)
 			if base == thumbsDirName { // We should completely skip the thumbnail directory
@@ -108,8 +109,8 @@ func main() {
 			thumbDir := filepath.Join(dir, thumbsDirName)
 			if !dirs[dir] {
 				if err := os.Mkdir(thumbDir, 0777); err != nil && !os.IsExist(err) {
-					fmt.Printf("Error creating thumb directory %v: %v\n", thumbDir, err)
-					os.Exit(1)
+					msg := fmt.Sprintf("Error creating thumb directory %v: %v\n", thumbDir, err)
+					return errors.New(msg)
 				}
 				dirs[dir] = true
 			}
@@ -119,8 +120,8 @@ func main() {
 			// Extract DateTime & get a thumbnail
 			f, err := os.Open(path)
 			if err != nil {
-				fmt.Printf("Error opening %v; %v\n", path, err)
-				os.Exit(1)
+				msg := fmt.Sprintf("Error opening %v; %v\n", path, err)
+				return errors.New(msg)
 			}
 			x, exiferr := exif.Decode(f)
 			dtString := "NONE"
@@ -143,8 +144,7 @@ func main() {
 			}
 			if err != nil {
 				// Couldn't get a thumbnail- stop everything
-				fmt.Printf("Cannot generate a thumbnail for %s\n", path)
-				os.Exit(1)
+				return errors.New("Cannot generate a thumbnail for " + path)
 			}
 
 			// Write out the thumbnail
@@ -163,7 +163,4 @@ func main() {
 		}
 		return nil
 	})
-	if err != nil {
-		fmt.Println(err)
-	}
 }
