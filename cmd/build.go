@@ -24,12 +24,13 @@ import (
 )
 
 var from string
+var idx string
 
 // buildCmd represents the build command
 var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build an index or database file.",
-	Long:  `If the file does not exist it will be created.  If it already exists it will be updated.`,
+	Long:  `When building an index, the root path of pictures is provided.  When building a database a database filename is provided.  If the database file does not exist it will be created.  If it already exists it will be updated.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("build command requires argument 'database' or 'index'")
@@ -40,7 +41,6 @@ var buildCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("build called with "+args[0]+" and from=", from)
 		if from == "" {
 			fmt.Fprintln(os.Stderr, "Error: must provide a value for --from")
 			return
@@ -48,7 +48,11 @@ var buildCmd = &cobra.Command{
 		if args[0] == "index" {
 			index.Photoindex(from)
 		} else if args[0] == "database" {
-			db.Photodatabase(from)
+			if idx == "" {
+				fmt.Fprintln(os.Stderr, "Error: must provide a value for --index when building a database")
+				return
+			}
+			db.Photodatabase(from, idx)
 		}
 	},
 }
@@ -56,4 +60,5 @@ var buildCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(buildCmd)
 	buildCmd.PersistentFlags().StringVar(&from, "from", "", "Source file/directory from which to start build.")
+	buildCmd.PersistentFlags().StringVar(&idx, "index", "", "Index file to be used when building a database.")
 }
