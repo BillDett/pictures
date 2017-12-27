@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"time"
@@ -15,18 +16,49 @@ type IdSet map[string]bool
 
 // Database is the pictures metadata database
 type Database struct {
-	Title   string           `json:"title"`
-	Created string           `json:"created"`
-	Index   string           `json:"index"`
-	Ids     IdSet            `json:"ids"`
-	Labels  map[string]IdSet `json:"labels"`
+	Title    string           `json:"title"`
+	Created  string           `json:"created"`
+	Filepath string           `json:"filepath"`
+	Index    string           `json:"index"`
+	Ids      IdSet            `json:"ids"`
+	Labels   map[string]IdSet `json:"labels"`
+}
+
+// InitDatabaseFrom ensures that we have a properly initialized database even if filename does not exist
+func InitDatabaseFrom(filename string, indexfilename string) (*Database, error) {
+	db := NewDatabase("My Photo Archive", filename, indexfilename)
+	f, err := os.Open(filename)
+	defer f.Close()
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("File " + filename + " does not exist...creating")
+		} else { // File permissions/corrupted, etc...
+			return nil, err
+		}
+	} else {
+		fmt.Printf("Opened %s, reading...\n", filename)
+		//finfo, _ := f.Stat()
+		dbBytes, err := ioutil.ReadAll(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading in database file %v: %v\n", filename, err)
+			return nil, err
+		}
+		fmt.Printf("We read in %d bytes\n", len(dbBytes))
+		err = json.Unmarshal(dbBytes, db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error unmarshalling database file %v: %v\n", filename, err)
+			return nil, err
+		}
+	}
+	return db, nil
 }
 
 // NewDatabase creates an instance of Database
-func NewDatabase(title string, index string) *Database {
+func NewDatabase(title string, filepath string, index string) *Database {
 	d := new(Database)
 	d.Title = title
 	d.Index = index
+	d.Filepath = filepath
 	d.Ids = make(IdSet)
 	d.Labels = make(map[string]IdSet)
 	d.Created = time.Now().Format("Mon Jan _2 2006 15:04:05")
@@ -42,9 +74,6 @@ func init() {
 // ProcessIndexRecord creates/updates the corresponding entry in the database
 func (db *Database) ProcessIndexRecord(record []string) {
 	// [53884f829ad4e0cc /Users/bill/temp/pix/2004/CIMG0024.JPG /Users/bill/temp/pix/2004/thumbs/CIMG0024_thumb.JPG 2004:04:25 02:20:24]
-	/*
-		if key does not exist in the database, add it.
-	*/
 	key := record[0]
 	//path := record[1]
 	//thumbPath := record[2]
@@ -129,8 +158,8 @@ func (ids IdSet) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(keys)
 }
-func (ids *IdSet) UnmarshalJSONd(data []byte) error {
-	var result IdSet
+func (ids *IdSet) UnmarshalJSON(data []byte) error {
+	result := make(IdSet)
 	var keys []string
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return err
@@ -144,18 +173,6 @@ func (ids *IdSet) UnmarshalJSONd(data []byte) error {
 
 // Dump will print out the database in human readable format
 func (db *Database) Dump() {
-	/*
-		fmt.Println("Title: " + db.title)
-		fmt.Println("Created: " + db.created)
-		fmt.Println("Index: " + db.index)
-		for key, idset := range db.labels {
-			fmt.Printf("Label: %s\n\t", key)
-			for id := range idset {
-				fmt.Printf("%s,", id)
-			}
-			fmt.Println()
-		}
-	*/
 	json, err := json.MarshalIndent(db, "", "  ")
 	//json, err := json.Marshal(db)
 	if err == nil {
@@ -165,39 +182,32 @@ func (db *Database) Dump() {
 	}
 }
 
+// Save will write out the database in human readable format
+func (db *Database) Save() error {
+	json, err := json.MarshalIndent(db, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshalling: %v\n", err.Error())
+		return err
+	}
+	err = ioutil.WriteFile(db.Filepath, json, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating database file %v: %v\n", db.Filepath, err)
+		return err
+	}
+	return nil
+}
+
 // Photodatabase manages the database at the name given
 func Photodatabase(filename string, indexfilename string) error {
 	/*
-
-		{
-			"title": "My photo archive",
-			"basePath" : "/Volumes/bills_files/photos export",
-			"created": "2018:01:07",
-			"index": "photo_index.txt",
-			"labels": {
-				"2003": [ "12345", "82732", "33829" ],
-				"2004": [ "882923", "094039", "8208208" ],
-				"January": [ "12345", "838202" ]
-			}
-		}
-
-		Initialize an empty database structure
-		if the file does not exist:
-			create it
-		If the file exists:
-			make a backup copy
-			read file into database structure
-		Close filename
-		Open indexfilename
-		For each line:
-			if key does not exist in database
-				add it.
-			Look at datetime- parse if not "NONE"- add default labels
-		Open filename for writing
-		Write database structure out to filename
+		Create or update a photo metadata database using the index file.
 	*/
 
-	db := NewDatabase("My Photo Archive", filename)
+	db, err := InitDatabaseFrom(filename, indexfilename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing database from %v: %v\n", filename, err)
+		return err
+	}
 
 	// Process the Index
 	idxfile, err := os.Open(indexfilename)
@@ -217,10 +227,7 @@ func Photodatabase(filename string, indexfilename string) error {
 	}
 	idxfile.Close()
 
-	//db.Ids = db.Labels["2003"].Union(db.Labels["2004"])
-	//db.Labels["undated"] = db.Ids.Intersection(db.Labels["2004"])
-
-	db.Dump()
+	db.Save()
 
 	return nil
 }
