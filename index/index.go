@@ -6,6 +6,7 @@ package index
 
 import (
 	"bytes"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"github.com/cozy/goexif2/exif"
@@ -15,10 +16,22 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// Index is a flat list of Records
+type Index []Record
+
+// Record points to a specific picture somewhere on disk
+type Record struct {
+	Key       string
+	Filepath  string
+	Thumbpath string
+	Datetime  string
+}
 
 // Remember what directories we've seen to simplify thumbnail creation
 var dirs map[string]bool
@@ -27,6 +40,29 @@ func hash(s string) string {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return fmt.Sprintf("%x", h.Sum64())
+}
+
+// LoadIndex will read an index csv file and create an Index structure
+func LoadIndex(filename string) (*Index, error) {
+	var idx Index
+	idxfile, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	r := csv.NewReader(idxfile)
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		r := Record{record[0], record[1], record[2], record[3]}
+		idx = append(idx, r)
+	}
+	idxfile.Close()
+	return &idx, nil
 }
 
 // TODO: We could be a bit smarter here- lots of duplicate code
@@ -88,12 +124,20 @@ func Photoindex(root string) error {
 	if root == "" {
 		return errors.New("empty root directory given to Photoindex()")
 	}
-	// TODO: We should stat() root to make sure it exists!
+	_, err := os.Stat(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "The directory %s cannot be found.\n", root)
+		return err
+	}
 	dirs = make(map[string]bool)
 	return filepath.Walk(root, func(path string, info os.FileInfo, walkerr error) error {
 		if walkerr == nil {
+			fmt.Printf("Saw path %s\n", path)
 			base := filepath.Base(path)
 			if base == thumbsDirName { // We should completely skip the thumbnail directory
+				/*
+					TODO: THIS ISN"T WORKING! WE ARE INDEXING THE THUMBNAILS!!
+				*/
 				return filepath.SkipDir
 			}
 			if info.IsDir() { // If we've walked onto a directory itself, just ignore it

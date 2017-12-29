@@ -1,12 +1,11 @@
 package db
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
+	"pictures/index"
 	"strconv"
 	"time"
 )
@@ -72,18 +71,15 @@ func init() {
 }
 
 // ProcessIndexRecord creates/updates the corresponding entry in the database
-func (db *Database) ProcessIndexRecord(record []string) {
-	// [53884f829ad4e0cc /Users/bill/temp/pix/2004/CIMG0024.JPG /Users/bill/temp/pix/2004/thumbs/CIMG0024_thumb.JPG 2004:04:25 02:20:24]
-	key := record[0]
-	//path := record[1]
-	//thumbPath := record[2]
-	dateTime := record[3]
+func (db *Database) ProcessIndexRecord(record index.Record) {
+	key := record.Key
+	dateTime := record.Datetime
 
 	// Add to the list of all ids
 	db.Ids[key] = true
 
 	// Set the date labels if we can
-	if dateTime != "NONE" {
+	if dateTime != "NONE" && dateTime != "0000:00:00 00:00:00" {
 		t, err := time.Parse("2006:01:02 15:04:05", dateTime)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error decoding dateTime from index: %v: %v\n", dateTime, err)
@@ -209,23 +205,14 @@ func Photodatabase(filename string, indexfilename string) error {
 		return err
 	}
 
-	// Process the Index
-	idxfile, err := os.Open(indexfilename)
+	// Read the Index and process it
+	index, err := index.LoadIndex(indexfilename)
 	if err != nil {
 		return err
 	}
-	r := csv.NewReader(idxfile)
-	for {
-		record, err := r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		db.ProcessIndexRecord(record)
+	for _, rec := range *index {
+		db.ProcessIndexRecord(rec)
 	}
-	idxfile.Close()
 
 	db.Save()
 
