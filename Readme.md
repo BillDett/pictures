@@ -1,97 +1,47 @@
-Pictures
+# Pictures
 
-Generic tool to build a simple metadata database from a directory of pictures (possibly nested)
+Generic tool to build a simple metadata database from a directory of pictures.  The goal is an extremely simple data structure that is easily machine readable and stays usable regardless of language, operating system or software changes.
 
-Database Format
+## Creating an index and database 
 
-Index - maps a unique id to each picture we find to
-    * Path to picture
-    * Path to thumbnail
-    * JSON of EXIF data
-
-Labels - maps a label to a set of qualifying images.  We use labels to represent Years and Months.
-
-Goal is to be simple & understandable but machine readable.
-
-https://github.com/deckarep/golang-set
-https://github.com/cozy/goexif2
-https://github.com/nfnt/resize
-https://github.com/segmentio/ksuid
-https://github.com/nanobox-io/golang-scribble
-
-
-{
-    "title": "My photo archive",
-    "basePath" : "/Volumes/bills_files/photos export",
-    "created": "2018:01:07",
-    "index": "photo_index.txt",
-    "labels": {
-        "2003": [ "12345", "82732", "33829" ],
-        "2004": [ "882923", "094039", "8208208" ],
-        "January": [ "12345", "838202" ]
-    }
-}
-
-Single executable- ```pictures``` which does the following
-* Can be used to initialize/update the database from the index
-    * First time creation
-    * Generate all default labels (replace any existing)
-    * Preserve any existing non-default labels
-* Can be used to host the database & provide a REST API so it can be interrogated & new labels added
-* Eventually it should also be able to generate the photo index I suppose...?
+The first thing we need is an index of all pictures located in the given directory:
 
 ```
-	pictures
-
-	usage:
-		pictures build index myindex.txt --from=/mypix
-		pictures build database mypix.json --from=myindex.txt
-		pictures host mypix.json --port=8080
+$ ./pictures build index --from=/Users/bill/Pictures > index.txt
 ```
 
-Labels can be JSON based...
+Generates an index file ```index.txt``` which contains a record for each picture encountered (recursively) in the given directory.  Each picture has a thumbnail image created and stored in a ```/thumbs``` directory created inside each directory seen.
 
-But Index should be a simple CSV flat file
+The index file format is very simple:
 
+PICTURE_ID,FILEPATH,THUMBPATH,DATETIME
+
+e.g.
 ```
-INDEX,FILEPATH,THUMBPATH,DATETIME
-12345,/2003/DSC00023.jpg,/2003/thumbs/DSC0023_thumb.jpg,2003:01:05 23:33:02
-45678,/2005/DSC23023.jpg,/2005/thumbs/DSC23023_thumb.jpg,2005:03:12 11:38:02
-```
-
-photoindex - executable that generates/re-creates the index file from a directory of pictures.
-
-Each ID should be a hash of the FILEPATH- so that we can avoid re-indexing files that we've already seen.  Runnning the photoindex executable on same directory twice should produce identical output.
-Use a SHA1 hash- https://gobyexample.com/sha1-hashes
-SHA1 might be too slow- can also try the fnv library in standard golang: https://golang.org/pkg/hash/fnv/
-    the hash.New64a() looks promising...
-
-Run a quick test- fetch all pathnames & see if we get any collisions!  Try different hashing algorithms.
-
-
+21d5f22733d7931d,/Users/bill/Pictures/Andree.jpg,/Users/bill/Pictures/thumbs/Andree_thumb.jpg,2003:08:05 22:55:15
 ```
 
-process() {
-    For each file {
-        create thumb directory if it doesn't exist
-        generate id via SHA1 hash of path
-        if *.jpg {
-            Get EXIF
-            Create thumbnail
-         } else if *.tiff or *.png {
-             Create a thumbnail (using go image library)
-         }
-         Create entry in index with id, path, thumb (if there) and exif (if there)
-         if EXIF exists {
-             Pull year and month from DateTime
-             Label this id for year and month tags
-         } else {
-             Label this id with "nodate" tag
-         }
-    }
-    For each directory {
-        process()
-    }
-}
+If there is no embedded EXIF data containing DATETIME, then the picture will have ```NONE``` in that column.  Supported image formats are JPEG, TIFF, and PNG.
+
+The index represents all pictures, but there is no organization.  To organize the pictures we need a database of labels.  We can generate a default database which will label the pictures by timestamp as follows:
 
 ```
+$ ./pictures build database --index=index.txt --from=database.json
+```
+
+If ```database.json``` does not exist, it will be created.  If it already exists, then any existing non-default labels will not be affected.
+
+The database file is a basic JSON document with labels (tags) as object members pointing to lists of PICTURE_ID values.  Each list of PICTURE_ID acts like a set of values.  The default labels are generated for Year and Month.
+
+It is safe to re-run a ```pictures build database``` on an existing database file even if the index file has changed.
+
+## Hosting an index and database
+
+Once an index and database have been created, the ```pictures``` executable can be used to host them interactively with a small web site that allows viewing and management of labels.
+
+```
+$ ./pictures host --index=index.txt --database=database.json --port=8080
+```
+
+Opening ```http://localhost:8080``` in a browser will show the main page of images showing the latest available month's worth of pictures.
+
