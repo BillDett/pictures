@@ -135,9 +135,6 @@ func Photoindex(root string) error {
 			fmt.Printf("Saw path %s\n", path)
 			base := filepath.Base(path)
 			if base == thumbsDirName { // We should completely skip the thumbnail directory
-				/*
-					TODO: THIS ISN"T WORKING! WE ARE INDEXING THE THUMBNAILS!!
-				*/
 				return filepath.SkipDir
 			}
 			if info.IsDir() { // If we've walked onto a directory itself, just ignore it
